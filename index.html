@@ -1,0 +1,1192 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Orb Rush</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;600;700&display=swap" rel="stylesheet">
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  background: #0d0d1a;
+  overflow: hidden;
+  font-family: 'Space Grotesk', sans-serif;
+  color: #fff;
+  user-select: none;
+}
+
+canvas { display: block; }
+
+/* ── Glass panel mixin ── */
+.glass {
+  background: rgba(26, 29, 46, 0.78);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  border: 1.5px solid rgba(255,255,255,0.12);
+  border-radius: 16px;
+  box-shadow: 0 6px 20px rgba(0,0,0,0.35);
+}
+
+/* ── HUD ── */
+#hud {
+  position: fixed; inset: 0;
+  pointer-events: none;
+  z-index: 10;
+}
+
+#hud-timer {
+  position: absolute; top: 16px; left: 50%; transform: translateX(-50%);
+  padding: 8px 20px;
+  font-size: 22px; font-weight: 700;
+  letter-spacing: 2px;
+  min-width: 110px; text-align: center;
+}
+#hud-timer.urgent {
+  color: #FF4ECD;
+  animation: timerPulse 0.8s ease-in-out infinite;
+}
+@keyframes timerPulse {
+  0%,100% { text-shadow: 0 0 8px #FF4ECD; }
+  50%      { text-shadow: 0 0 24px #FF4ECD, 0 0 48px #FF4ECD; }
+}
+
+#hud-score {
+  position: absolute; top: 16px; left: 16px;
+  padding: 8px 16px;
+  font-size: 14px;
+}
+#hud-score .label { opacity: 0.6; font-size: 11px; margin-bottom: 2px; }
+#hud-score .value { font-size: 22px; font-weight: 700; color: #FFD700; }
+
+#hud-sprint {
+  position: absolute; top: 16px; right: 16px;
+  padding: 6px 14px;
+  font-size: 11px; font-weight: 700; letter-spacing: 1px;
+  color: #06FFA5;
+  border-color: rgba(6,255,165,0.3);
+  opacity: 0;
+  transition: opacity 0.1s;
+  text-shadow: 0 0 8px #06FFA5;
+}
+#hud-sprint.active { opacity: 1; }
+
+#hud-leaderboard {
+  position: absolute; top: 70px; right: 16px;
+  padding: 12px 14px;
+  min-width: 190px;
+}
+#hud-leaderboard h3 {
+  font-size: 11px; font-weight: 700; letter-spacing: 1px;
+  opacity: 0.5; margin-bottom: 8px; text-transform: uppercase;
+}
+.lb-row {
+  display: flex; align-items: center; gap: 8px;
+  font-size: 13px; padding: 3px 0;
+}
+.lb-rank { opacity: 0.5; width: 20px; font-size: 11px; }
+.lb-dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
+.lb-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lb-score { font-weight: 700; color: #FFD700; }
+
+#hud-players {
+  position: absolute; bottom: 16px; left: 16px;
+  padding: 6px 14px;
+  font-size: 13px; opacity: 0.8;
+}
+
+/* ── Reconnect banner ── */
+#banner-reconnect {
+  position: fixed; top: 0; left: 0; right: 0;
+  padding: 10px;
+  background: rgba(26,29,46,0.9);
+  border-bottom: 1.5px solid rgba(255,78,205,0.5);
+  text-align: center;
+  font-size: 13px; font-weight: 600;
+  color: #FF4ECD;
+  z-index: 200;
+  display: none;
+}
+
+/* ── Screens ── */
+.screen {
+  position: fixed; inset: 0;
+  display: flex; align-items: center; justify-content: center;
+  background: rgba(10,10,22,0.92);
+  z-index: 100;
+  display: none;
+}
+.screen.active { display: flex; }
+
+/* Lobby */
+#screen-lobby .card {
+  text-align: center;
+  padding: 40px 48px;
+  max-width: 480px; width: 100%;
+}
+#screen-lobby h1 {
+  font-size: 42px; font-weight: 700; margin-bottom: 8px;
+  background: linear-gradient(135deg, #FF4ECD, #00CFFF);
+  -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+}
+#screen-lobby .subtitle {
+  font-size: 13px; opacity: 0.5; margin-bottom: 28px;
+}
+#lobby-status {
+  font-size: 15px; margin-bottom: 20px; min-height: 24px;
+  color: #00CFFF;
+}
+#lobby-players {
+  display: flex; flex-direction: column; gap: 6px;
+  max-height: 200px; overflow-y: auto;
+}
+.lobby-player-row {
+  display: flex; align-items: center; gap: 10px;
+  padding: 6px 12px; border-radius: 8px;
+  background: rgba(255,255,255,0.05);
+  font-size: 13px;
+}
+.lobby-player-dot { width: 10px; height: 10px; border-radius: 50%; }
+
+/* Game Over */
+#screen-gameover {
+  transform: translateY(100%);
+  transition: transform 0.5s cubic-bezier(0.22,1,0.36,1);
+}
+#screen-gameover.active { transform: translateY(0); }
+#screen-gameover .card {
+  text-align: center;
+  padding: 40px 48px;
+  max-width: 520px; width: 100%;
+}
+#screen-gameover h1 {
+  font-size: 32px; font-weight: 700; margin-bottom: 24px;
+  color: #FF4ECD;
+}
+#final-leaderboard {
+  width: 100%; border-collapse: collapse; margin-bottom: 24px;
+  font-size: 14px;
+}
+#final-leaderboard th {
+  text-align: left; padding: 4px 8px;
+  font-size: 11px; font-weight: 700; letter-spacing: 1px;
+  opacity: 0.4; text-transform: uppercase;
+  border-bottom: 1px solid rgba(255,255,255,0.1);
+}
+#final-leaderboard td {
+  padding: 8px 8px; vertical-align: middle;
+}
+.go-row-local td { color: #FFD700; }
+.go-rank { opacity: 0.5; width: 32px; }
+.go-dot { width: 24px; }
+.go-dot-inner { width: 12px; height: 12px; border-radius: 50%; display: inline-block; }
+.go-score { font-weight: 700; text-align: right; }
+#next-round {
+  font-size: 13px; opacity: 0.6;
+}
+#next-count { color: #FF4ECD; font-weight: 700; }
+</style>
+</head>
+<body>
+
+<canvas id="canvas"></canvas>
+
+<!-- HUD -->
+<div id="hud">
+  <div id="hud-timer" class="glass">05:00</div>
+  <div id="hud-score" class="glass">
+    <div class="label">SCORE</div>
+    <div class="value" id="hud-score-val">0</div>
+  </div>
+  <div id="hud-sprint" class="glass">⚡ SPRINT</div>
+  <div id="hud-leaderboard" class="glass">
+    <h3>Leaderboard</h3>
+    <div id="hud-lb-list"></div>
+  </div>
+  <div id="hud-players" class="glass">👥 <span id="hud-player-count">0</span> / 25</div>
+</div>
+
+<div id="banner-reconnect">Reconnecting...</div>
+
+<!-- Lobby screen -->
+<div id="screen-lobby" class="screen active">
+  <div class="card glass">
+    <h1>🌌 Orb Rush</h1>
+    <p class="subtitle">Collect orbs. Beat everyone. 5 minutes.</p>
+    <div id="lobby-status">Connecting...</div>
+    <div id="lobby-players"></div>
+  </div>
+</div>
+
+<!-- Game Over screen -->
+<div id="screen-gameover" class="screen">
+  <div class="card glass">
+    <h1>⏱ Time's Up!</h1>
+    <table id="final-leaderboard">
+      <thead>
+        <tr>
+          <th>#</th><th></th><th>Player</th><th style="text-align:right">Score</th>
+        </tr>
+      </thead>
+      <tbody id="final-lb-body"></tbody>
+    </table>
+    <div id="next-round">Next round starts in: <span id="next-count">10</span>s</div>
+  </div>
+</div>
+
+<script>
+'use strict';
+
+function _uuid() {
+  if (typeof crypto !== 'undefined' && crypto.randomUUID) return crypto.randomUUID();
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => {
+    const r = Math.random() * 16 | 0;
+    return (c === 'x' ? r : (r & 0x3 | 0x8)).toString(16);
+  });
+}
+
+const WORLD_SIZE = 2000;
+const lerp = (a, b, t) => a + (b - a) * t;
+const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+
+// ── Camera ────────────────────────────────────────────────────────────────────
+class Camera {
+  constructor() { this.x = 0; this.y = 0; }
+  follow(target, vw, vh, dt) {
+    const tx = target.x - vw / 2;
+    const ty = target.y - vh / 2;
+    // Frame-rate independent lerp (same pattern as Wanderlands)
+    const alpha = 1 - Math.pow(0.001, dt);
+    this.x = lerp(this.x, tx, alpha);
+    this.y = lerp(this.y, ty, alpha);
+    this.x = clamp(this.x, 0, WORLD_SIZE - vw);
+    this.y = clamp(this.y, 0, WORLD_SIZE - vh);
+  }
+}
+
+// ── Player ────────────────────────────────────────────────────────────────────
+class Player {
+  constructor(data) {
+    this.id      = data.id;
+    this.name    = data.name;
+    this.color   = data.color;
+    this.x       = data.x ?? WORLD_SIZE / 2;
+    this.y       = data.y ?? WORLD_SIZE / 2;
+    this.serverX = this.x;
+    this.serverY = this.y;
+    this.score   = data.score ?? 0;
+    this.r       = 16;
+    this.isLocal = false;
+    this.angle   = -Math.PI / 2;  // default facing up
+  }
+  interpolate(dt) {
+    if (!this.isLocal) {
+      const alpha = 1 - Math.pow(0.8, dt / 0.01667);
+      const prevX = this.x, prevY = this.y;
+      this.x = lerp(this.x, this.serverX, alpha);
+      this.y = lerp(this.y, this.serverY, alpha);
+      // Derive facing from velocity — smooth via sin/cos lerp (no wrap issues)
+      const dx = this.x - prevX, dy = this.y - prevY;
+      if (Math.hypot(dx, dy) > 0.5) {
+        const ta = Math.atan2(dy, dx);
+        const s  = lerp(Math.sin(this.angle), Math.sin(ta), 0.15);
+        const c  = lerp(Math.cos(this.angle), Math.cos(ta), 0.15);
+        this.angle = Math.atan2(s, c);
+      }
+    }
+  }
+}
+
+// ── Orb ───────────────────────────────────────────────────────────────────────
+class Orb {
+  constructor(data) {
+    this.id     = data.id;
+    this.x      = data.x;
+    this.y      = data.y;
+    this.type   = data.type;
+    this.value  = data.value;
+    this.color  = data.color;
+    this.t      = Math.random() * Math.PI * 2;
+    this.hidden = false;
+  }
+  get radius() { return { common: 8, rare: 10, legendary: 14 }[this.type] ?? 8; }
+  update(dt) { this.t += dt * 3; }
+}
+
+// ── ParticleSystem ────────────────────────────────────────────────────────────
+class ParticleSystem {
+  constructor() {
+    // Pool sized 700: 25 sprinting players × footstep rate + burst headroom
+    this.pool = Array.from({ length: 700 }, () => ({ active: false }));
+  }
+  _alloc() {
+    for (let i = 0; i < this.pool.length; i++) {
+      if (!this.pool[i].active) return this.pool[i];
+    }
+    return null;
+  }
+  spawnOrbBurst(x, y, color) {
+    const count = 12 + Math.floor(Math.random() * 9);
+    for (let i = 0; i < count; i++) {
+      const p = this._alloc(); if (!p) continue;
+      const a  = (i / count) * Math.PI * 2 + Math.random() * 0.5;
+      const sp = 60 + Math.random() * 150;
+      Object.assign(p, {
+        active: true, x, y,
+        vx: Math.cos(a) * sp, vy: Math.sin(a) * sp - 30,
+        life: 0.6, max: 0.6, r: 2.5 + Math.random() * 3,
+        color, kind: 'burst',
+      });
+    }
+  }
+  spawnFootstep(x, y) {
+    const p = this._alloc(); if (!p) return;
+    Object.assign(p, {
+      active: true,
+      x: x + (Math.random() - 0.5) * 8, y,
+      vx: (Math.random() - 0.5) * 12, vy: -Math.random() * 8,
+      life: 0.4, max: 0.4, r: 2 + Math.random() * 2,
+      color: null, kind: 'foot',
+    });
+  }
+  update(dt) {
+    for (const p of this.pool) {
+      if (!p.active) continue;
+      p.x  += p.vx * dt;
+      p.y  += p.vy * dt;
+      if (p.kind === 'burst') p.vy += 250 * dt;
+      p.vx *= 0.92;
+      p.life -= dt;
+      if (p.life <= 0) p.active = false;
+    }
+  }
+  draw(ctx, camera) {
+    for (const p of this.pool) {
+      if (!p.active) continue;
+      const alpha = p.life / p.max;
+      const sx = p.x - camera.x;
+      const sy = p.y - camera.y;
+      ctx.beginPath();
+      ctx.arc(sx, sy, p.r * alpha, 0, Math.PI * 2);
+      if (p.kind === 'burst') {
+        ctx.fillStyle = p.color + Math.round(alpha * 255).toString(16).padStart(2,'0');
+      } else {
+        ctx.fillStyle = `rgba(200,200,255,${alpha * 0.7})`;
+      }
+      ctx.fill();
+    }
+  }
+}
+
+// ── Renderer ──────────────────────────────────────────────────────────────────
+class Renderer {
+  constructor(canvas) {
+    this.canvas = canvas;
+    this.ctx    = canvas.getContext('2d');
+    this.ctx.imageSmoothingEnabled = false;
+    // Pre-render orb type sprites to OffscreenCanvas to avoid per-frame shadowBlur (CPU-bound)
+    this._orbSprites = {};
+    this._buildOrbSprites();
+  }
+
+  _buildOrbSprites() {
+    const types = [
+      { type: 'common',    r: 8,  color: '#FFD700', glow: 14 },
+      { type: 'rare',      r: 10, color: '#00CFFF', glow: 14 },
+      { type: 'legendary', r: 14, color: '#FF4ECD', glow: 22 },
+    ];
+    for (const spec of types) {
+      const size = (spec.r + spec.glow) * 2 + 4;
+      const oc = new OffscreenCanvas(size, size);
+      const oc_ctx = oc.getContext('2d');
+      const cx = size / 2;
+      oc_ctx.shadowColor = spec.color;
+      oc_ctx.shadowBlur  = spec.glow;
+      oc_ctx.fillStyle   = spec.color;
+      oc_ctx.beginPath();
+      oc_ctx.arc(cx, cx, spec.r, 0, Math.PI * 2);
+      oc_ctx.fill();
+      oc_ctx.shadowBlur = 0;
+      this._orbSprites[spec.type] = { canvas: oc, size, r: spec.r, color: spec.color };
+    }
+  }
+
+  resize(w, h) {
+    this.canvas.width  = w;
+    this.canvas.height = h;
+    this.ctx.imageSmoothingEnabled = false;
+  }
+
+  drawWorld(camera, vw, vh) {
+    const ctx = this.ctx;
+    ctx.fillStyle = '#0d0d1a';
+    ctx.fillRect(0, 0, vw, vh);
+
+    // Grid lines
+    ctx.strokeStyle = 'rgba(255,255,255,0.04)';
+    ctx.lineWidth   = 1;
+    const startX = Math.floor(camera.x / 100) * 100;
+    const startY = Math.floor(camera.y / 100) * 100;
+    ctx.beginPath();
+    for (let wx = startX; wx < camera.x + vw + 100; wx += 100) {
+      const sx = Math.round(wx - camera.x) + 0.5;
+      ctx.moveTo(sx, 0); ctx.lineTo(sx, vh);
+    }
+    for (let wy = startY; wy < camera.y + vh + 100; wy += 100) {
+      const sy = Math.round(wy - camera.y) + 0.5;
+      ctx.moveTo(0, sy); ctx.lineTo(vw, sy);
+    }
+    ctx.stroke();
+
+    // World boundary glow
+    ctx.strokeStyle = 'rgba(255,78,205,0.4)';
+    ctx.lineWidth   = 3;
+    ctx.shadowColor = '#FF4ECD';
+    ctx.shadowBlur  = 12;
+    ctx.strokeRect(-camera.x, -camera.y, WORLD_SIZE, WORLD_SIZE);
+    ctx.shadowBlur  = 0;
+
+    // Vignette
+    const grad = ctx.createRadialGradient(vw/2, vh/2, vw*0.3, vw/2, vh/2, vw*0.8);
+    grad.addColorStop(0, 'rgba(0,0,0,0)');
+    grad.addColorStop(1, 'rgba(0,0,0,0.5)');
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, 0, vw, vh);
+  }
+
+  drawOrbs(orbs, camera) {
+    const ctx = this.ctx;
+    for (const orb of orbs) {
+      if (orb.hidden) continue;
+      const sprite = this._orbSprites[orb.type];
+      if (!sprite) continue;
+      const sx = orb.x - camera.x;
+      const sy = orb.y - camera.y;
+
+      if (orb.type === 'rare') {
+        // Pulse: scale the sprite
+        const scale = 1 + Math.sin(orb.t * 2) * 0.12;
+        const sz = sprite.size * scale;
+        ctx.drawImage(sprite.canvas, sx - sz/2, sy - sz/2, sz, sz);
+      } else if (orb.type === 'legendary') {
+        // Draw base orb from sprite
+        const sz = sprite.size;
+        ctx.drawImage(sprite.canvas, sx - sz/2, sy - sz/2, sz, sz);
+        // Rotating shimmer rays (live, since they animate)
+        ctx.save();
+        ctx.translate(sx, sy);
+        ctx.rotate(orb.t * 0.8);
+        ctx.strokeStyle = 'rgba(255,255,255,0.6)';
+        ctx.lineWidth   = 1.5;
+        const r = sprite.r;
+        ctx.beginPath();
+        for (let i = 0; i < 6; i++) {
+          const a = (i / 6) * Math.PI * 2;
+          ctx.moveTo(Math.cos(a) * r * 0.6, Math.sin(a) * r * 0.6);
+          ctx.lineTo(Math.cos(a) * (r + 7), Math.sin(a) * (r + 7));
+        }
+        ctx.stroke();
+        ctx.restore();
+      } else {
+        // Common: straight drawImage
+        ctx.drawImage(sprite.canvas, sx - sprite.size/2, sy - sprite.size/2);
+      }
+    }
+  }
+
+  drawPlayer(player, camera, isLocal) {
+    const ctx   = this.ctx;
+    const sx    = player.x - camera.x;
+    const sy    = player.y - camera.y;
+    const r     = player.r;
+    const alpha = isLocal ? 1.0 : 0.85;
+
+    ctx.save();
+    ctx.globalAlpha = alpha;
+    ctx.translate(sx, sy);
+
+    // Outer glow ring (local player only)
+    if (isLocal) {
+      ctx.shadowColor = player.color;
+      ctx.shadowBlur  = 28;
+    }
+
+    // Ring: thick stroke
+    ctx.beginPath();
+    ctx.arc(0, 0, r + 4, 0, Math.PI * 2);
+    ctx.strokeStyle = player.color;
+    ctx.lineWidth   = 3.5;
+    ctx.stroke();
+    ctx.shadowBlur  = 0;
+
+    // Dark body fill
+    ctx.beginPath();
+    ctx.arc(0, 0, r, 0, Math.PI * 2);
+    ctx.fillStyle = '#0d0d1a';
+    ctx.fill();
+
+    // Inner tinted disc (subtle color)
+    ctx.beginPath();
+    ctx.arc(0, 0, r - 4, 0, Math.PI * 2);
+    ctx.fillStyle = player.color + '30';  // 18% opacity
+    ctx.fill();
+
+    // Directional nose: triangle pointing in player.angle
+    ctx.rotate(player.angle);
+    const tipX  =  r + 9;
+    const baseY =  6;
+    ctx.beginPath();
+    ctx.moveTo(tipX, 0);
+    ctx.lineTo(r - 4,  baseY);
+    ctx.lineTo(r - 4, -baseY);
+    ctx.closePath();
+    ctx.fillStyle = player.color;
+    ctx.fill();
+    // Small inner accent dot
+    ctx.beginPath();
+    ctx.arc(0, 0, 4, 0, Math.PI * 2);
+    ctx.fillStyle = player.color + 'cc';
+    ctx.fill();
+
+    ctx.restore();
+    ctx.globalAlpha = 1;
+
+    // Name label
+    ctx.fillStyle    = '#fff';
+    ctx.font         = 'bold 11px "Space Grotesk"';
+    ctx.textAlign    = 'center';
+    ctx.textBaseline = 'bottom';
+    ctx.shadowColor  = 'rgba(0,0,0,0.8)';
+    ctx.shadowBlur   = 4;
+    ctx.fillText(player.name, sx, sy - r - 10);
+
+    // Score badge
+    ctx.fillStyle    = player.color;
+    ctx.font         = 'bold 10px "Space Grotesk"';
+    ctx.textBaseline = 'top';
+    ctx.fillText(player.score, sx, sy + r + 10);
+    ctx.shadowBlur   = 0;
+    ctx.textBaseline = 'alphabetic';
+  }
+}
+
+// ── HUD ───────────────────────────────────────────────────────────────────────
+class HUD {
+  constructor() {
+    this.$timer   = document.getElementById('hud-timer');
+    this.$score   = document.getElementById('hud-score-val');
+    this.$sprint  = document.getElementById('hud-sprint');
+    this.$lbList  = document.getElementById('hud-lb-list');
+    this.$players = document.getElementById('hud-player-count');
+    this.$reconnect    = document.getElementById('banner-reconnect');
+    this.$screenLobby  = document.getElementById('screen-lobby');
+    this.$screenGO     = document.getElementById('screen-gameover');
+    this.$lobbyStatus  = document.getElementById('lobby-status');
+    this.$lobbyPlayers = document.getElementById('lobby-players');
+    this.$finalBody    = document.getElementById('final-lb-body');
+    this.$nextCount    = document.getElementById('next-count');
+    this._nextTimer    = null;
+  }
+
+  setTimer(seconds) {
+    const m  = Math.floor(seconds / 60);
+    const s  = seconds % 60;
+    this.$timer.textContent = `${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`;
+    this.$timer.classList.toggle('urgent', seconds <= 30 && seconds > 0);
+  }
+
+  setScore(n) {
+    if (this._scoreDisplay === undefined) this._scoreDisplay = n;
+    this._scoreTarget = n;
+  }
+
+  tickScore(dt) {
+    if (this._scoreDisplay === undefined || this._scoreTarget === undefined) return;
+    const diff = this._scoreTarget - this._scoreDisplay;
+    if (Math.abs(diff) < 0.5) {
+      this._scoreDisplay = this._scoreTarget;
+    } else {
+      this._scoreDisplay += diff * Math.min(1, dt * 14);
+    }
+    this.$score.textContent = Math.round(this._scoreDisplay);
+  }
+
+  setSprint(on) { this.$sprint.classList.toggle('active', on); }
+
+  setPlayerCount(n) { this.$players.textContent = n; }
+
+  updateLeaderboard(players) {
+    if (this._lbQueued) return;  // dedupe — one update per idle slot
+    this._lbQueued = true;
+    const snapshot = [...players];
+    const doUpdate = () => {
+      this._lbQueued = false;
+      const sorted = snapshot.sort((a, b) => b.score - a.score).slice(0, 5);
+      // Use textContent — no innerHTML for user-supplied names (S2)
+      this.$lbList.innerHTML = '';
+    for (let i = 0; i < sorted.length; i++) {
+      const p   = sorted[i];
+      const row = document.createElement('div');
+      row.className = 'lb-row';
+
+      const rank = document.createElement('span');
+      rank.className = 'lb-rank';
+      rank.textContent = `#${i + 1}`;
+
+      const dot = document.createElement('span');
+      dot.className   = 'lb-dot';
+      dot.style.background = p.color;
+
+      const name = document.createElement('span');
+      name.className   = 'lb-name';
+      name.textContent = p.name;
+
+      const score = document.createElement('span');
+      score.className   = 'lb-score';
+      score.textContent = p.score;
+
+      row.appendChild(rank); row.appendChild(dot);
+      row.appendChild(name); row.appendChild(score);
+      this.$lbList.appendChild(row);
+    }
+    };
+    if (window.requestIdleCallback) {
+      requestIdleCallback(doUpdate, { timeout: 200 });
+    } else {
+      doUpdate();
+    }
+  }
+
+  showLobby(status, players) {
+    const savedName  = localStorage.getItem('orb-name');
+    const savedScore = localStorage.getItem('orb-last-score');
+    const prefix = (savedName && savedScore != null)
+      ? `Welcome back, ${savedName}! Last score: ${savedScore}. `
+      : '';
+    this.$lobbyStatus.textContent = prefix + status;
+    this.$lobbyPlayers.innerHTML  = '';
+    for (const p of players) {
+      const row = document.createElement('div');
+      row.className = 'lobby-player-row';
+      const dot = document.createElement('span');
+      dot.className = 'lobby-player-dot';
+      dot.style.background = p.color;
+      const name = document.createElement('span');
+      name.textContent = p.name;
+      row.appendChild(dot); row.appendChild(name);
+      this.$lobbyPlayers.appendChild(row);
+    }
+    this.$screenLobby.classList.add('active');
+    this.$screenGO.classList.remove('active');
+  }
+
+  hideLobby() {
+    this.$screenLobby.classList.remove('active');
+  }
+
+  showGameOver(leaderboard, localId) {
+    if (this._nextTimer) clearInterval(this._nextTimer);
+    let count = 10;
+    this.$nextCount.textContent = count;
+    this._nextTimer = setInterval(() => {
+      count--;
+      this.$nextCount.textContent = count;
+      if (count <= 0) clearInterval(this._nextTimer);
+    }, 1000);
+
+    this.$finalBody.innerHTML = '';
+    for (let i = 0; i < leaderboard.length; i++) {
+      const p   = leaderboard[i];
+      const tr  = document.createElement('tr');
+      if (p.id === localId || p.isLocal) tr.className = 'go-row-local';
+
+      const tdRank = document.createElement('td');
+      tdRank.className   = 'go-rank';
+      tdRank.textContent = `#${i + 1}`;
+
+      const tdDot = document.createElement('td');
+      tdDot.className = 'go-dot';
+      const dotEl = document.createElement('span');
+      dotEl.className   = 'go-dot-inner';
+      dotEl.style.background = p.color;
+      tdDot.appendChild(dotEl);
+
+      const tdName = document.createElement('td');
+      tdName.textContent = p.name;
+
+      const tdScore = document.createElement('td');
+      tdScore.className   = 'go-score';
+      tdScore.textContent = p.score;
+
+      tr.appendChild(tdRank); tr.appendChild(tdDot);
+      tr.appendChild(tdName); tr.appendChild(tdScore);
+      this.$finalBody.appendChild(tr);
+    }
+
+    this.$screenGO.classList.add('active');
+    this.$screenLobby.classList.remove('active');
+  }
+
+  hideGameOver() { this.$screenGO.classList.remove('active'); }
+
+  showReconnecting() { this.$reconnect.style.display = 'block'; }
+  hideReconnecting() { this.$reconnect.style.display = 'none'; }
+}
+
+// ── NetworkClient ─────────────────────────────────────────────────────────────
+class NetworkClient {
+  constructor(playerId, onMessage, onConnect, onDisconnect) {
+    this.playerId     = playerId;
+    this.onMessage    = onMessage;
+    this.onConnect    = onConnect;
+    this.onDisconnect = onDisconnect;
+    this.ws           = null;
+    this._reconnDelay = 2000;
+    this._dead        = false;
+    // Inline Web Worker: parse JSON off main thread to avoid GC/parse stalls
+    this._worker = new Worker(URL.createObjectURL(
+      new Blob([`self.onmessage=({data:r})=>{try{postMessage(JSON.parse(r))}catch{}}`],
+        { type: 'application/javascript' })
+    ));
+    this._worker.onmessage = ({ data: msg }) => this.onMessage(msg);
+  }
+
+  connect() {
+    if (this._dead) return;
+    // Dynamic host — works on LAN / any host (not hardcoded localhost)
+    const url = `ws://${location.host}/ws/${this.playerId}`;
+    this.ws = new WebSocket(url);
+
+    this.ws.onopen = () => {
+      this.onConnect();
+    };
+    this.ws.onmessage = (e) => {
+      this._worker.postMessage(e.data);  // parse off main thread
+    };
+    this.ws.onclose = () => {
+      this.onDisconnect();
+      if (!this._dead) {
+        setTimeout(() => this.connect(), this._reconnDelay);
+      }
+    };
+    this.ws.onerror = () => { /* onclose fires after */ };
+  }
+
+  send(msg) {
+    if (this.ws?.readyState === WebSocket.OPEN) {
+      this.ws.send(JSON.stringify(msg));
+    }
+  }
+
+  destroy() {
+    this._dead = true;
+    this.ws?.close();
+    this._worker.terminate();
+  }
+}
+
+// ── Game ──────────────────────────────────────────────────────────────────────
+class Game {
+  constructor() {
+    this.playerId = localStorage.getItem('orb-player-id') || _uuid();
+    localStorage.setItem('orb-player-id', this.playerId);
+
+    this.state   = 'lobby';  // lobby | active | ended
+    this.players = new Map();
+    this.orbs    = new Map();
+    // Map(orbId → {ts, value}) for optimistic collect + 300ms timeout rollback
+    this.pendingCollects = new Map();
+    this._scorePopups    = [];
+    this.localPlayer     = null;
+    this.keys            = {};
+    this.lastMoveTime    = 0;
+    this.lastFlushX      = null;
+    this.lastFlushY      = null;
+    this._pendingResize  = false;
+
+    const canvas = document.getElementById('canvas');
+    this.canvas   = canvas;
+    this.renderer = new Renderer(canvas);
+    this.camera   = new Camera();
+    this.particles = new ParticleSystem();
+    this.hud      = new HUD();
+
+    this._resize();
+    window.addEventListener('resize', () => { this._pendingResize = true; });
+
+    window.addEventListener('keydown', e => {
+      this.keys[e.key.toLowerCase()] = true;
+      if (['arrowup','arrowdown','arrowleft','arrowright','w','a','s','d',' '].includes(e.key.toLowerCase())) {
+        e.preventDefault();
+      }
+    });
+    window.addEventListener('keyup', e => {
+      this.keys[e.key.toLowerCase()] = false;
+      // Flush position on keyup so server gets final resting position
+      if (this.localPlayer && this.net) {
+        this.net.send({ type: 'move', x: this.localPlayer.x, y: this.localPlayer.y });
+      }
+    });
+
+    this.net = new NetworkClient(
+      this.playerId,
+      msg => this._onMessage(msg),
+      ()  => this._onConnect(),
+      ()  => this._onDisconnect(),
+    );
+    this.net.connect();
+
+    this._raf = null;
+    this._lastTime = null;
+    this._loop = this._loop.bind(this);
+    requestAnimationFrame(this._loop);
+  }
+
+  _resize() {
+    const w = window.innerWidth;
+    const h = window.innerHeight;
+    this.renderer.resize(w, h);
+    this._vw = w;
+    this._vh = h;
+  }
+
+  _onConnect() {
+    this.hud.hideReconnecting();
+  }
+
+  _onDisconnect() {
+    this.hud.showReconnecting();
+  }
+
+  _onMessage(msg) {
+    switch (msg.type) {
+      case 'init':         this._handleInit(msg);       break;
+      case 'player_joined': this._handlePlayerJoined(msg); break;
+      case 'player_left':  this._handlePlayerLeft(msg); break;
+      case 'state_update': this._handleStateUpdate(msg); break;
+      case 'orb_collected': this._handleOrbCollected(msg); break;
+      case 'orb_spawned':  this._handleOrbSpawned(msg); break;
+      case 'game_start':   this._handleGameStart(msg);  break;
+      case 'game_over':    this._handleGameOver(msg);   break;
+      case 'tick':         this._handleTick(msg);       break;
+      case 'lobby':        this._handleLobby(msg);      break;
+      case 'promoted':     this._handlePromoted(msg);   break;
+    }
+  }
+
+  _handleInit(msg) {
+    this.players.clear();
+    this.orbs.clear();
+
+    for (const pd of msg.players) {
+      const p = new Player(pd);
+      if (pd.id === this.playerId) {
+        p.isLocal = true;
+        this.localPlayer = p;
+      }
+      this.players.set(pd.id, p);
+    }
+    if (!this.localPlayer) {
+      const p = new Player({ id: this.playerId, name: msg.name, color: msg.color, x: WORLD_SIZE/2, y: WORLD_SIZE/2, score: 0 });
+      p.isLocal = true;
+      this.localPlayer = p;
+      this.players.set(this.playerId, p);
+    }
+    this.localPlayer.color = msg.color;
+    this.localPlayer.name  = msg.name;
+    localStorage.setItem('orb-name', msg.name);
+    localStorage.setItem('orb-color', msg.color);
+
+    for (const od of msg.orbs) {
+      this.orbs.set(od.id, new Orb(od));
+    }
+
+    this.hud.setTimer(msg.time_remaining ?? GAME_DURATION);
+    this.hud.setScore(this.localPlayer.score);
+    this.hud.setPlayerCount(this.players.size);
+    this.hud.updateLeaderboard([...this.players.values()]);
+
+    if (msg.game_state === 'ended') {
+      // Reconnected to ended game — show game over if leaderboard available
+      this.state = 'ended';
+    } else if (msg.game_state === 'active') {
+      this.state = 'active';
+      this.hud.hideLobby();
+      this.hud.hideGameOver();
+    } else {
+      this.state = 'lobby';
+      this.hud.showLobby(
+        `Waiting for players... (${this.players.size}/2 needed to start)`,
+        [...this.players.values()],
+      );
+    }
+  }
+
+  _handlePlayerJoined(msg) {
+    if (!this.players.has(msg.player.id)) {
+      const p = new Player(msg.player);
+      if (p.id === this.playerId) { p.isLocal = true; this.localPlayer = p; }
+      this.players.set(p.id, p);
+    }
+    this.hud.setPlayerCount(this.players.size);
+    this.hud.updateLeaderboard([...this.players.values()]);
+    if (this.state === 'lobby') {
+      this.hud.showLobby(
+        `Waiting for players... (${this.players.size}/2 needed to start)`,
+        [...this.players.values()],
+      );
+    }
+  }
+
+  _handlePlayerLeft(msg) {
+    this.players.delete(msg.player_id);
+    this.hud.setPlayerCount(this.players.size);
+    this.hud.updateLeaderboard([...this.players.values()]);
+  }
+
+  _handleStateUpdate(msg) {
+    if (this.state !== 'active') return;
+    for (const pd of msg.players) {
+      const p = this.players.get(pd.id);
+      if (!p) continue;
+      if (p.isLocal) {
+        // Only trust server score when no pending optimistic collects
+        if (this.pendingCollects.size === 0) p.score = pd.score;
+        continue;
+      }
+      p.serverX = pd.x;
+      p.serverY = pd.y;
+      p.score   = pd.score;
+    }
+    if (msg.time_remaining != null) {
+      this.hud.setTimer(msg.time_remaining);
+    }
+    // Timeout rollback — unhide orb + undo optimistic score
+    const now = performance.now();
+    for (const [orbId, entry] of this.pendingCollects) {
+      if (now - entry.ts > 300) {
+        const orb = this.orbs.get(orbId);
+        if (orb) orb.hidden = false;
+        if (this.localPlayer) this.localPlayer.score -= entry.value;
+        this.pendingCollects.delete(orbId);
+      }
+    }
+    this.hud.setScore(this.localPlayer?.score ?? 0);
+    this.hud.updateLeaderboard([...this.players.values()]);
+  }
+
+  _handleOrbCollected(msg) {
+    if (this.state !== 'active') return;
+    const orb = this.orbs.get(msg.orb_id);
+    if (orb) this.orbs.delete(msg.orb_id);
+    this.pendingCollects.delete(msg.orb_id);
+    const p = this.players.get(msg.collector_id);
+    if (p) {
+      if (p.isLocal) {
+        // Server confirmed new_score; add back any still-pending optimistic values
+        const stillPending = [...this.pendingCollects.values()].reduce((s, e) => s + e.value, 0);
+        p.score = msg.new_score + stillPending;
+      } else {
+        p.score = msg.new_score;
+      }
+    }
+    this.hud.setScore(this.localPlayer?.score ?? 0);
+    this.hud.updateLeaderboard([...this.players.values()]);
+  }
+
+  _handleOrbSpawned(msg) {
+    if (this.state !== 'active') return;
+    this.orbs.set(msg.orb.id, new Orb(msg.orb));
+  }
+
+  _handleGameStart(msg) {
+    this.state = 'active';
+    this.orbs.clear();
+    for (const od of msg.orbs) this.orbs.set(od.id, new Orb(od));
+    for (const p of this.players.values()) p.score = 0;
+    this.hud.setTimer(msg.time_remaining ?? GAME_DURATION);
+    this.hud.setScore(0);
+    this.hud.updateLeaderboard([...this.players.values()]);
+    this.hud.hideLobby();
+    this.hud.hideGameOver();
+  }
+
+  _handleGameOver(msg) {
+    this.state = 'ended';
+    const lb = msg.leaderboard.map(p => ({
+      ...p,
+      isLocal: p.name === this.localPlayer?.name,
+    }));
+    // Persist final score for lobby welcome-back message
+    if (this.localPlayer) {
+      localStorage.setItem('orb-last-score', this.localPlayer.score);
+    }
+    this.hud.showGameOver(lb, this.playerId);
+  }
+
+  _handleTick(msg) {
+    // tick is fallback — state_update is authoritative
+    // Only apply if state_update hasn't arrived recently (simplified: always accept)
+    if (this.state === 'active') {
+      // Will be overridden by next state_update anyway; just keep timer smooth
+    }
+  }
+
+  _handleLobby(msg) {
+    this.state = 'lobby';
+    this.hud.showLobby(
+      msg.message || `You are #${msg.position} in the lobby. Hang tight...`,
+      [...this.players.values()],
+    );
+  }
+
+  _handlePromoted(msg) {
+    // Update local identity with promoted slot
+    if (this.localPlayer) {
+      this.localPlayer.color = msg.color;
+      this.localPlayer.name  = msg.name;
+    }
+    this.hud.hideGameOver();
+    // join_game init message follows immediately from server
+  }
+
+  _updateLocalPlayer(dt) {
+    const p = this.localPlayer;
+    if (!p || this.state !== 'active') return;
+
+    let ax = 0, ay = 0;
+    if (this.keys['arrowup']    || this.keys['w']) ay -= 1;
+    if (this.keys['arrowdown']  || this.keys['s']) ay += 1;
+    if (this.keys['arrowleft']  || this.keys['a']) ax -= 1;
+    if (this.keys['arrowright'] || this.keys['d']) ax += 1;
+
+    const moving = ax !== 0 || ay !== 0;
+    const sprint  = this.keys['shift'];
+    const speed   = sprint ? 320 : 180;
+
+    if (moving) {
+      const len = Math.hypot(ax, ay);
+      p.x = clamp(p.x + (ax / len) * speed * dt, 0, WORLD_SIZE);
+      p.y = clamp(p.y + (ay / len) * speed * dt, 0, WORLD_SIZE);
+      if (sprint) this.particles.spawnFootstep(p.x, p.y + p.r);
+      // Smooth angle toward input direction
+      const ta = Math.atan2(ay, ax);
+      const s  = lerp(Math.sin(p.angle), Math.sin(ta), 0.2);
+      const c  = lerp(Math.cos(p.angle), Math.cos(ta), 0.2);
+      p.angle  = Math.atan2(s, c);
+    }
+
+    this.hud.setSprint(sprint && moving);
+
+    const now = performance.now();
+    if (moving && now - this.lastMoveTime > 33) {  // ~30 updates/s, matches server MAX_MOVE_RATE
+      this.lastMoveTime = now;
+      this.net.send({ type: 'move', x: p.x, y: p.y });
+    }
+
+    this._checkOrbCollision(p);
+  }
+
+  _checkOrbCollision(player) {
+    if (this.state !== 'active') return;
+    for (const [id, orb] of this.orbs) {
+      if (orb.hidden) continue;
+      const dx = player.x - orb.x;
+      const dy = player.y - orb.y;
+      if (dx * dx + dy * dy < 30 * 30 && !this.pendingCollects.has(id)) {
+        orb.hidden = true;
+        this.pendingCollects.set(id, { ts: performance.now(), value: orb.value });
+        // Optimistic score — feels instant, server corrects on confirm
+        player.score += orb.value;
+        this.hud.setScore(player.score);
+        this._spawnScorePopup(orb.x, orb.y, orb.value, orb.color);
+        this.particles.spawnOrbBurst(orb.x, orb.y, orb.color);
+        this.net.send({ type: 'collect', orb_id: id });
+      }
+    }
+  }
+
+  _spawnScorePopup(wx, wy, value, color) {
+    this._scorePopups.push({ x: wx, y: wy - 20, vy: -60, life: 0.9, value: `+${value}`, color });
+  }
+
+  _loop(ts) {
+    requestAnimationFrame(this._loop);
+
+    if (this._lastTime === null) { this._lastTime = ts; }
+    const dt = Math.min((ts - this._lastTime) / 1000, 0.1);  // cap at 100ms
+    this._lastTime = ts;
+
+    // Apply pending resize at start of frame
+    if (this._pendingResize) {
+      this._pendingResize = false;
+      this._resize();
+    }
+
+    this.hud.tickScore(dt);
+    this._updateLocalPlayer(dt);
+
+    // Interpolate remote players
+    for (const p of this.players.values()) {
+      p.interpolate(dt);
+    }
+
+    // Update orb animations
+    for (const orb of this.orbs.values()) {
+      orb.update(dt);
+    }
+
+    this.particles.update(dt);
+
+    // Update camera
+    if (this.localPlayer) {
+      this.camera.follow(this.localPlayer, this._vw, this._vh, dt);
+    }
+
+    // Draw
+    const ctx = this.renderer.ctx;
+    this.renderer.drawWorld(this.camera, this._vw, this._vh);
+
+    // Draw orbs
+    this.renderer.drawOrbs([...this.orbs.values()], this.camera);
+
+    // Draw particles
+    this.particles.draw(ctx, this.camera);
+
+    // Draw players (sorted by y for painter's algorithm)
+    const sorted = [...this.players.values()].sort((a, b) => a.y - b.y);
+    for (const p of sorted) {
+      this.renderer.drawPlayer(p, this.camera, p.isLocal);
+    }
+
+    // Draw floating score popups
+    if (this._scorePopups.length) {
+      const pctx = this.renderer.ctx;
+      pctx.font = 'bold 14px "Space Grotesk"';
+      pctx.textAlign = 'center';
+      pctx.textBaseline = 'alphabetic';
+      this._scorePopups = this._scorePopups.filter(sp => {
+        sp.y    += sp.vy * dt;
+        sp.vy   *= 0.88;
+        sp.life -= dt;
+        if (sp.life <= 0) return false;
+        const a = Math.min(1, sp.life * 2);
+        pctx.globalAlpha = a;
+        pctx.fillStyle   = sp.color;
+        pctx.shadowColor = sp.color;
+        pctx.shadowBlur  = 10;
+        pctx.fillText(sp.value, sp.x - this.camera.x, sp.y - this.camera.y);
+        pctx.shadowBlur  = 0;
+        pctx.globalAlpha = 1;
+        return true;
+      });
+    }
+  }
+}
+
+// ── Boot ──────────────────────────────────────────────────────────────────────
+window.addEventListener('DOMContentLoaded', () => { new Game(); });
+</script>
+</body>
+</html>

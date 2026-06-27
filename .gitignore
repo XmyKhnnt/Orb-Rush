@@ -1,0 +1,8 @@
+# Ignore everything
+*
+
+# Except these
+!index.html
+!server.py
+!README.md
+!.gitignore
