@@ -755,7 +755,8 @@ class NetworkClient {
   connect() {
     if (this._dead) return;
     // Dynamic host — works on LAN / any host (not hardcoded localhost)
-    const url = `ws://${location.host}/ws/${this.playerId}`;
+    const proto = location.protocol === 'https:' ? 'wss' : 'ws';
+    const url = `${proto}://${location.host}/ws/${this.playerId}`;
     this.ws = new WebSocket(url);
 
     this.ws.onopen = () => {
