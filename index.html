@@ -186,6 +186,70 @@ canvas { display: block; }
   font-size: 13px; opacity: 0.6;
 }
 #next-count { color: #FF4ECD; font-weight: 700; }
+
+/* ── Chat overlay ── */
+#chat-overlay {
+  position: absolute;
+  bottom: 56px;
+  left: 16px;
+  width: 280px;
+  height: 200px;
+  pointer-events: auto;
+  display: none;
+  flex-direction: column;
+  background: rgba(26, 29, 46, 0.6);
+}
+#chat-overlay.active { display: flex; }
+#chat-messages {
+  flex: 1;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px 10px;
+  scrollbar-width: none;
+}
+#chat-messages::-webkit-scrollbar { display: none; }
+.chat-msg {
+  font-size: 12px;
+  line-height: 1.4;
+  word-break: break-word;
+}
+.chat-name { font-weight: 700; margin-right: 3px; }
+#chat-input-row {
+  padding: 6px 8px;
+  border-top: 1px solid rgba(255,255,255,0.08);
+}
+#chat-input {
+  width: 100%;
+  background: rgba(255,255,255,0.06);
+  border: 1px solid rgba(255,255,255,0.15);
+  border-radius: 8px;
+  color: #fff;
+  font-family: inherit;
+  font-size: 12px;
+  padding: 5px 8px;
+  outline: none;
+  pointer-events: auto;
+}
+#chat-input::placeholder { opacity: 0.4; }
+#chat-input:focus { border-color: rgba(255,255,255,0.35); }
+#chat-hint {
+  font-size: 10px;
+  opacity: 0.3;
+  margin-top: 4px;
+  text-align: center;
+  letter-spacing: 0.5px;
+}
+@keyframes chat-shake {
+  0%, 100% { transform: translateX(0); }
+  25%       { transform: translateX(-4px); }
+  75%       { transform: translateX(4px); }
+}
+#chat-input.rate-limited {
+  animation: chat-shake 0.3s ease;
+  border-color: #f55 !important;
+}
 </style>
 </head>
 <body>
@@ -205,6 +269,13 @@ canvas { display: block; }
     <div id="hud-lb-list"></div>
   </div>
   <div id="hud-players" class="glass">👥 <span id="hud-player-count">0</span> / 25</div>
+  <div id="chat-overlay" class="glass">
+    <div id="chat-messages"></div>
+    <div id="chat-input-row">
+      <input id="chat-input" maxlength="100" autocomplete="off" spellcheck="false" placeholder="Chat..." />
+      <div id="chat-hint">T · ENTER to send · ESC to close</div>
+    </div>
+  </div>
 </div>
 
 <div id="banner-reconnect">Reconnecting...</div>
@@ -805,6 +876,7 @@ class Game {
     this.lastFlushX      = null;
     this.lastFlushY      = null;
     this._pendingResize  = false;
+    this._lastChatSend   = 0;
 
     const canvas = document.getElementById('canvas');
     this.canvas   = canvas;
@@ -817,18 +889,33 @@ class Game {
     window.addEventListener('resize', () => { this._pendingResize = true; });
 
     window.addEventListener('keydown', e => {
+      const inChat = document.activeElement?.id === 'chat-input';
+      if (e.key.toLowerCase() === 't' && !inChat && this.state === 'active') {
+        e.preventDefault();
+        document.getElementById('chat-input').focus();
+        return;
+      }
+      if (inChat) return;
       this.keys[e.key.toLowerCase()] = true;
       if (['arrowup','arrowdown','arrowleft','arrowright','w','a','s','d',' '].includes(e.key.toLowerCase())) {
         e.preventDefault();
       }
     });
     window.addEventListener('keyup', e => {
+      if (document.activeElement?.id === 'chat-input') return;
       this.keys[e.key.toLowerCase()] = false;
       // Flush position on keyup so server gets final resting position
       if (this.localPlayer && this.net) {
         this.net.send({ type: 'move', x: this.localPlayer.x, y: this.localPlayer.y });
       }
     });
+
+    const chatInput = document.getElementById('chat-input');
+    chatInput.addEventListener('keydown', e => {
+      if (e.key === 'Enter') { e.preventDefault(); this.sendChat(); chatInput.blur(); }
+      if (e.key === 'Escape') { chatInput.blur(); }
+    });
+    chatInput.addEventListener('blur', () => { this.keys = {}; });
 
     this.net = new NetworkClient(
       this.playerId,
@@ -873,6 +960,8 @@ class Game {
       case 'tick':         this._handleTick(msg);       break;
       case 'lobby':        this._handleLobby(msg);      break;
       case 'promoted':     this._handlePromoted(msg);   break;
+      case 'chat':         this._handleChat(msg);        break;
+      case 'chat_history': this._handleChatHistory(msg); break;
     }
   }
 
@@ -915,6 +1004,7 @@ class Game {
       this.state = 'active';
       this.hud.hideLobby();
       this.hud.hideGameOver();
+      this._showChat();
     } else {
       this.state = 'lobby';
       this.hud.showLobby(
@@ -1003,6 +1093,7 @@ class Game {
 
   _handleGameStart(msg) {
     this.state = 'active';
+    this._lastChatSend = 0;
     this.orbs.clear();
     for (const od of msg.orbs) this.orbs.set(od.id, new Orb(od));
     for (const p of this.players.values()) p.score = 0;
@@ -1011,10 +1102,12 @@ class Game {
     this.hud.updateLeaderboard([...this.players.values()]);
     this.hud.hideLobby();
     this.hud.hideGameOver();
+    this._showChat();
   }
 
   _handleGameOver(msg) {
     this.state = 'ended';
+    this._hideChat();
     const lb = msg.leaderboard.map(p => ({
       ...p,
       isLocal: p.name === this.localPlayer?.name,
@@ -1036,6 +1129,7 @@ class Game {
 
   _handleLobby(msg) {
     this.state = 'lobby';
+    this._hideChat();
     this.hud.showLobby(
       msg.message || `You are #${msg.position} in the lobby. Hang tight...`,
       [...this.players.values()],
@@ -1050,6 +1144,62 @@ class Game {
     }
     this.hud.hideGameOver();
     // join_game init message follows immediately from server
+  }
+
+  _handleChat(msg) {
+    this._appendChatMessage(msg.name, msg.text);
+  }
+
+  _handleChatHistory(msg) {
+    for (const m of msg.messages) this._appendChatMessage(m.name, m.text);
+  }
+
+  _appendChatMessage(name, text) {
+    const list = document.getElementById('chat-messages');
+    const p = document.createElement('p');
+    p.className = 'chat-msg';
+    const nameSpan = document.createElement('span');
+    nameSpan.className = 'chat-name';
+    nameSpan.style.color = this._chatNameColor(name);
+    nameSpan.textContent = name + ':';
+    p.appendChild(nameSpan);
+    p.appendChild(document.createTextNode(' ' + text));
+    list.appendChild(p);
+    while (list.children.length > 20) list.removeChild(list.firstChild);
+    list.scrollTop = list.scrollHeight;
+  }
+
+  _chatNameColor(name) {
+    for (const p of this.players.values()) {
+      if (p.name === name) return p.color;
+    }
+    return '#aaa';
+  }
+
+  sendChat() {
+    const input = document.getElementById('chat-input');
+    const text = input.value.trim();
+    if (!text) return;
+    const now = Date.now();
+    if (now - this._lastChatSend < 1000) {
+      input.classList.remove('rate-limited');
+      void input.offsetWidth; // reflow to restart animation
+      input.classList.add('rate-limited');
+      setTimeout(() => input.classList.remove('rate-limited'), 500);
+      return;
+    }
+    this._lastChatSend = now;
+    this.net.send({ type: 'chat', text });
+    input.value = '';
+  }
+
+  _showChat() {
+    document.getElementById('chat-overlay').classList.add('active');
+  }
+
+  _hideChat() {
+    document.getElementById('chat-overlay').classList.remove('active');
+    document.getElementById('chat-input').blur();
   }
 
   _updateLocalPlayer(dt) {
