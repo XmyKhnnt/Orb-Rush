@@ -5,6 +5,7 @@ import random
 import re
 import time
 import uuid
+from collections import deque
 from contextlib import asynccontextmanager
 from enum import StrEnum
 from typing import TypedDict
@@ -84,6 +85,8 @@ class Session:
         self.players: dict[str, PlayerState] = {}
         self.color_idx: int = 0
         self.resetting: bool = False
+        self.chat_history: deque[dict] = deque(maxlen=20)
+        self.player_last_chat: dict[str, float] = {}
 
     def next_color(self) -> str:
         c = COLORS[self.color_idx % len(COLORS)]
@@ -243,6 +246,12 @@ async def join_game(player_id: str, ws: WebSocket) -> None:
         "time_remaining": session.time_remaining,
     }))
 
+    if session.chat_history:
+        await ws.send_text(json.dumps({
+            "type": "chat_history",
+            "messages": list(session.chat_history),
+        }))
+
     await broadcast({
         "type": "player_joined",
         "player": {k: player[k] for k in ("id", "name", "color", "x", "y", "score")},
@@ -255,6 +264,7 @@ async def disconnect_player(player_id: str) -> None:
     active.pop(player_id, None)
     player = session.players.pop(player_id, None)
     _rate.pop(player_id, None)
+    session.player_last_chat.pop(player_id, None)
 
     if player and session.state == GameState.ACTIVE:
         _grace[player_id] = (
@@ -342,6 +352,8 @@ async def reset_game() -> None:
     session.time_remaining = GAME_DURATION
     session.orbs.clear()
     session.color_idx = 0
+    session.chat_history.clear()
+    session.player_last_chat.clear()
     _grace.clear()
 
     while lobby and len(active) < MAX_PLAYERS:
@@ -366,6 +378,26 @@ async def handle_message(player_id: str, data: dict) -> None:
     elif msg_type == "collect":
         if _check_rate(player_id, "collect"):
             await handle_collect(player_id, data)
+    elif msg_type == "chat":
+        await handle_chat(player_id, data)
+
+async def handle_chat(player_id: str, data: dict) -> None:
+    now = time.time()
+    if now - session.player_last_chat.get(player_id, 0) < 1.0:
+        return
+    text = data.get("text", "")
+    if not isinstance(text, str):
+        return
+    text = text[:100].strip()
+    if not text:
+        return
+    player = session.players.get(player_id)
+    if not player:
+        return
+    session.player_last_chat[player_id] = now
+    entry = {"type": "chat", "name": player["name"], "text": text, "t": int(now)}
+    session.chat_history.append(entry)
+    await broadcast(entry)
 
 async def handle_move(player_id: str, data: dict) -> None:
     player = session.players.get(player_id)
@@ -547,7 +579,7 @@ async def websocket_endpoint(ws: WebSocket, player_id: str):
                 continue
             if not isinstance(data, dict):
                 continue
-            if data.get("type") not in ("move", "collect"):
+            if data.get("type") not in ("move", "collect", "chat"):
                 continue
             await handle_message(player_id, data)
     except WebSocketDisconnect:
