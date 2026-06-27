@@ -193,13 +193,15 @@ canvas { display: block; }
   bottom: 56px;
   left: 16px;
   width: 280px;
+  height: 200px;
   pointer-events: auto;
   display: none;
   flex-direction: column;
+  background: rgba(26, 29, 46, 0.6);
 }
 #chat-overlay.active { display: flex; }
 #chat-messages {
-  max-height: 140px;
+  flex: 1;
   overflow-y: auto;
   display: flex;
   flex-direction: column;
@@ -913,6 +915,7 @@ class Game {
       if (e.key === 'Enter') { e.preventDefault(); this.sendChat(); chatInput.blur(); }
       if (e.key === 'Escape') { chatInput.blur(); }
     });
+    chatInput.addEventListener('blur', () => { this.keys = {}; });
 
     this.net = new NetworkClient(
       this.playerId,
