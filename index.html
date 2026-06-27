@@ -60,6 +60,19 @@ canvas { display: block; }
 #hud-score .label { opacity: 0.6; font-size: 11px; margin-bottom: 2px; }
 #hud-score .value { font-size: 22px; font-weight: 700; color: #FFD700; }
 
+#hud-minimap {
+  position: absolute; top: 92px; left: 16px;
+  width: 140px; height: 140px;
+  padding: 6px;
+  display: flex;
+  align-items: center; justify-content: center;
+}
+#minimap-canvas {
+  width: 100%; height: 100%;
+  border-radius: 10px;
+  background: transparent;
+}
+
 #hud-sprint {
   position: absolute; top: 16px; right: 16px;
   padding: 6px 14px;
@@ -198,6 +211,9 @@ canvas { display: block; }
   <div id="hud-score" class="glass">
     <div class="label">SCORE</div>
     <div class="value" id="hud-score-val">0</div>
+  </div>
+  <div id="hud-minimap" class="glass">
+    <canvas id="minimap-canvas"></canvas>
   </div>
   <div id="hud-sprint" class="glass">⚡ SPRINT</div>
   <div id="hud-leaderboard" class="glass">
@@ -813,6 +829,10 @@ class Game {
     this.particles = new ParticleSystem();
     this.hud      = new HUD();
 
+    const minimapCanvas = document.getElementById('minimap-canvas');
+    this.minimapCanvas = minimapCanvas;
+    this.minimapCtx = minimapCanvas.getContext('2d');
+
     this._resize();
     window.addEventListener('resize', () => { this._pendingResize = true; });
 
@@ -850,6 +870,12 @@ class Game {
     this.renderer.resize(w, h);
     this._vw = w;
     this._vh = h;
+    if (this.minimapCanvas) {
+      const rect = this.minimapCanvas.getBoundingClientRect();
+      const dpr = window.devicePixelRatio || 1;
+      this.minimapCanvas.width = rect.width * dpr;
+      this.minimapCanvas.height = rect.height * dpr;
+    }
   }
 
   _onConnect() {
@@ -1112,6 +1138,80 @@ class Game {
     this._scorePopups.push({ x: wx, y: wy - 20, vy: -60, life: 0.9, value: `+${value}`, color });
   }
 
+  _drawMinimap() {
+    if (!this.minimapCanvas || !this.minimapCtx) return;
+    const mctx = this.minimapCtx;
+    const mw = this.minimapCanvas.width;
+    const mh = this.minimapCanvas.height;
+
+    mctx.clearRect(0, 0, mw, mh);
+
+    // Draw scaled grid lines
+    mctx.strokeStyle = 'rgba(255, 255, 255, 0.05)';
+    mctx.lineWidth = 1;
+    mctx.beginPath();
+    for (let pos = 500; pos < WORLD_SIZE; pos += 500) {
+      const mx = (pos / WORLD_SIZE) * mw;
+      const my = (pos / WORLD_SIZE) * mh;
+      mctx.moveTo(mx, 0);
+      mctx.lineTo(mx, mh);
+      mctx.moveTo(0, my);
+      mctx.lineTo(mw, my);
+    }
+    mctx.stroke();
+
+    // Draw world border bounds inside minimap
+    mctx.strokeStyle = 'rgba(255, 78, 205, 0.2)';
+    mctx.lineWidth = 1.5;
+    mctx.strokeRect(0, 0, mw, mh);
+
+    // Draw other players
+    for (const p of this.players.values()) {
+      if (p.isLocal) continue;
+      const mx = (p.x / WORLD_SIZE) * mw;
+      const my = (p.y / WORLD_SIZE) * mh;
+
+      mctx.beginPath();
+      mctx.arc(mx, my, 3, 0, Math.PI * 2);
+      mctx.fillStyle = p.color;
+      mctx.fill();
+    }
+
+    // Draw local player
+    if (this.localPlayer) {
+      const mx = (this.localPlayer.x / WORLD_SIZE) * mw;
+      const my = (this.localPlayer.y / WORLD_SIZE) * mh;
+
+      mctx.save();
+      mctx.translate(mx, my);
+
+      // Draw outer highlight ring
+      mctx.beginPath();
+      mctx.arc(0, 0, 6.5, 0, Math.PI * 2);
+      mctx.strokeStyle = 'rgba(255, 255, 255, 0.6)';
+      mctx.lineWidth = 1;
+      mctx.stroke();
+
+      // Draw player's own dot
+      mctx.beginPath();
+      mctx.arc(0, 0, 4.5, 0, Math.PI * 2);
+      mctx.fillStyle = this.localPlayer.color;
+      mctx.fill();
+
+      // Draw direction indicator arrow (pointing in localPlayer.angle direction)
+      mctx.rotate(this.localPlayer.angle);
+      mctx.beginPath();
+      mctx.moveTo(8, 0); // Tip of the arrow
+      mctx.lineTo(3.5, -3);
+      mctx.lineTo(3.5, 3);
+      mctx.closePath();
+      mctx.fillStyle = '#ffffff';
+      mctx.fill();
+
+      mctx.restore();
+    }
+  }
+
   _loop(ts) {
     requestAnimationFrame(this._loop);
 
@@ -1159,6 +1259,11 @@ class Game {
     const sorted = [...this.players.values()].sort((a, b) => a.y - b.y);
     for (const p of sorted) {
       this.renderer.drawPlayer(p, this.camera, p.isLocal);
+    }
+
+    // Draw minimap
+    if (this.localPlayer && this.state === 'active') {
+      this._drawMinimap();
     }
 
     // Draw floating score popups
